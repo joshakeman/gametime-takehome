@@ -37,7 +37,7 @@ For ease of testing, simple interfaces are established that allow you to create 
 - `api/` holds the HTTP handlers.
 - `main.go` wires the pieces together.
 
-## With more time
+## Tradeoffs & With More Time
 
 - Persist orders and history in a real database. In this case, you would consider the best practices for controlling data races and enforcing atomicity where necessary.
 - The "payment service" in this case is well controlled, as this is a simplified model intended to test a state machine. In reality, you would be worried about network failures, retries and similar issues which are best prevented with idempotency controls. This was excluded from this exercise but would be necessary for a real application. You would pass an idempotency key to the payment servicer (ie Stripe) to ensure retries don't result in multiple charges.

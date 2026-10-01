@@ -1,6 +1,10 @@
 # Order Payment Flow
 
+## Description
+
 A small Go service that takes an order through payment authorization and completion, voiding the payment if completion fails and flagging the order as `needs_attention` if the void fails too.
+
+## How to Run It
 
 ```sh
 go run .                     # serves on :8080

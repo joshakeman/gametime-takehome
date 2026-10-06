@@ -1,6 +1,7 @@
 package service
 
 import (
+	"context"
 	"errors"
 	"slices"
 	"sync"
@@ -67,7 +68,7 @@ func TestProcess(t *testing.T) {
 				t.Fatalf("Create: %v", err)
 			}
 
-			o, err := svc.Process(created.ID)
+			o, err := svc.Process(t.Context(), created.ID)
 
 			if len(tt.wantErrs) == 0 && err != nil {
 				t.Errorf("Process error = %v, want nil", err)
@@ -96,7 +97,7 @@ func TestProcess(t *testing.T) {
 			}
 
 			// A finished order can't be processed again.
-			if _, err := svc.Process(created.ID); !errors.Is(err, data.ErrInvalidTransition) {
+			if _, err := svc.Process(t.Context(), created.ID); !errors.Is(err, data.ErrInvalidTransition) {
 				t.Errorf("second Process error = %v, want %v", err, data.ErrInvalidTransition)
 			}
 		})
@@ -106,7 +107,7 @@ func TestProcess(t *testing.T) {
 func TestProcessUnknownOrder(t *testing.T) {
 	svc := New(data.NewStore(), FakePaymentService{}, FakeCompleter{})
 
-	if _, err := svc.Process(999); !errors.Is(err, data.ErrNotFound) {
+	if _, err := svc.Process(t.Context(), 999); !errors.Is(err, data.ErrNotFound) {
 		t.Errorf("Process error = %v, want %v", err, data.ErrNotFound)
 	}
 }
@@ -128,7 +129,7 @@ func TestProcessConcurrent(t *testing.T) {
 	for range 20 {
 		wg.Go(func() {
 			<-start
-			if _, err := svc.Process(o.ID); err == nil {
+			if _, err := svc.Process(t.Context(), o.ID); err == nil {
 				mu.Lock()
 				successes++
 				mu.Unlock()
@@ -140,5 +141,34 @@ func TestProcessConcurrent(t *testing.T) {
 
 	if successes != 1 {
 		t.Errorf("successful Process calls = %d, want 1", successes)
+	}
+}
+
+// cancellingCompleter simulates the client disconnecting during completion:
+// it cancels the request context, then fails.
+type cancellingCompleter struct{ cancel context.CancelFunc }
+
+func (c cancellingCompleter) Complete(ctx context.Context, orderID int) error {
+	c.cancel()
+	return ctx.Err()
+}
+
+// If the request is cancelled mid-flow, the void must still run, or the
+// customer's authorization would never be released.
+func TestProcessVoidsAfterCancellation(t *testing.T) {
+	ctx, cancel := context.WithCancel(t.Context())
+	svc := New(data.NewStore(), FakePaymentService{}, cancellingCompleter{cancel})
+	o, err := svc.Create("user-1", 100)
+	if err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+
+	o, err = svc.Process(ctx, o.ID)
+
+	if !errors.Is(err, context.Canceled) {
+		t.Errorf("Process error = %v, want %v", err, context.Canceled)
+	}
+	if o.Status != data.StatusOrderVoided {
+		t.Errorf("Status = %q, want %q", o.Status, data.StatusOrderVoided)
 	}
 }

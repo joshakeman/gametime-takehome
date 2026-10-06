@@ -1,6 +1,7 @@
 package api
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"net/http"
@@ -13,7 +14,7 @@ import (
 // so api doesn't import service, which avoids an import cycle.
 type OrderService interface {
 	Create(userID string, amount int) (data.Order, error)
-	Process(id int) (data.Order, error)
+	Process(ctx context.Context, id int) (data.Order, error)
 	Get(id int) (data.Order, error)
 }
 
@@ -56,7 +57,7 @@ func (h Handler) process(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	o, err := h.svc.Process(id)
+	o, err := h.svc.Process(r.Context(), id)
 	if errors.Is(err, data.ErrNotFound) || errors.Is(err, data.ErrInvalidTransition) {
 		writeError(w, err)
 		return

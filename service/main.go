@@ -1,6 +1,7 @@
 package service
 
 import (
+	"context"
 	"errors"
 
 	"github.com/joshakeman/gametime-take-home/data"
@@ -29,20 +30,22 @@ func (s *OrderService) Get(id int) (data.Order, error) {
 	return s.store.Get(id)
 }
 
-func (s *OrderService) Process(id int) (data.Order, error) {
+func (s *OrderService) Process(ctx context.Context, id int) (data.Order, error) {
 	// Claim the order atomically: ErrNotFound -> 404, already processed -> 409.
 	if err := s.store.ClaimPending(id); err != nil {
 		return data.Order{}, err
 	}
 
-	if err := s.ps.Authorize(id); err != nil {
+	if err := s.ps.Authorize(ctx, id); err != nil {
 		s.store.SetStatusDeclined(id)
 		return s.final(id, err)
 	}
 	s.store.SetStatusAuthorized(id)
 
-	if completeErr := s.c.Complete(id); completeErr != nil {
-		if voidErr := s.ps.Void(id); voidErr != nil {
+	if completeErr := s.c.Complete(ctx, id); completeErr != nil {
+		// Void with a context that isn't cancelled along with the request: if
+		// the client disconnects, the authorization still has to be released.
+		if voidErr := s.ps.Void(context.WithoutCancel(ctx), id); voidErr != nil {
 			s.store.SetStatusNeedsAttention(id)
 			return s.final(id, errors.Join(completeErr, voidErr)) // keep both
 		}
